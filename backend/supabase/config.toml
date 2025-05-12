@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "agentpress"
+project_id = "supabase-test"
 
 [api]
 enabled = true
@@ -10,7 +10,7 @@ enabled = true
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
-schemas = ["public", "graphql_public", "basejump"]
+schemas = ["public", "graphql_public"]
 # Extra schemas to add to the search_path of every request.
 extra_search_path = ["public", "extensions"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size
@@ -98,7 +98,17 @@ file_size_limit = "50MiB"
 [storage.buckets.agentpress]
 public = false
 file_size_limit = "50MiB"
-allowed_mime_types = ["text/plain", "application/json", "text/markdown", "text/css", "text/javascript", "application/javascript", "text/html", "text/xml", "application/xml"]
+allowed_mime_types = [
+  "text/plain",
+  "application/json",
+  "text/markdown",
+  "text/css",
+  "text/javascript",
+  "application/javascript",
+  "text/html",
+  "text/xml",
+  "application/xml",
+]
 
 [auth]
 enabled = true
@@ -308,4 +318,3 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.billing-webhooks]
 verify_jwt = false
-
