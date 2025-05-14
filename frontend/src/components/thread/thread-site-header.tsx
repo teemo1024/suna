@@ -1,23 +1,32 @@
 'use client';
 
-import { Button } from "@/components/ui/button"
-import { FolderOpen, Link, PanelRightOpen, Check, X, Menu, Share2 } from "lucide-react"
-import { usePathname } from "next/navigation"
-import { toast } from "sonner"
+import { Button } from '@/components/ui/button';
+import {
+  FolderOpen,
+  Link,
+  PanelRightOpen,
+  Check,
+  X,
+  Menu,
+  Share2,
+} from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { useState, useRef, KeyboardEvent } from "react"
-import { Input } from "@/components/ui/input"
-import { updateProject } from "@/lib/api"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useIsMobile } from "@/hooks/use-mobile"
-import { cn } from "@/lib/utils"
-import { useSidebar } from "@/components/ui/sidebar"
-import { ShareModal } from "@/components/sidebar/share-modal"
+} from '@/components/ui/tooltip';
+import { useState, useRef, KeyboardEvent } from 'react';
+import { Input } from '@/components/ui/input';
+import { updateProject } from '@/lib/api';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
+import { useSidebar } from '@/components/ui/sidebar';
+import { ShareModal } from '@/components/sidebar/share-modal';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 
 interface ThreadSiteHeaderProps {
   threadId: string;
@@ -40,18 +49,18 @@ export function SiteHeader({
   isMobileView,
   debugMode,
 }: ThreadSiteHeaderProps) {
-  const pathname = usePathname()
-  const [isEditing, setIsEditing] = useState(false)
-  const [editName, setEditName] = useState(projectName)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [showShareModal, setShowShareModal] = useState(false)
+  const pathname = usePathname();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(projectName);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [showShareModal, setShowShareModal] = useState(false);
 
-  const isMobile = useIsMobile() || isMobileView
-  const { setOpenMobile } = useSidebar()
+  const isMobile = useIsMobile() || isMobileView;
+  const { setOpenMobile } = useSidebar();
 
   const openShareModal = () => {
-    setShowShareModal(true)
-  }
+    setShowShareModal(true);
+  };
 
   const startEditing = () => {
     setEditName(projectName);
@@ -83,7 +92,9 @@ export function SiteHeader({
           return;
         }
 
-        const updatedProject = await updateProject(projectId, { name: editName })
+        const updatedProject = await updateProject(projectId, {
+          name: editName,
+        });
         if (updatedProject) {
           onProjectRenamed?.(editName);
           toast.success('Project renamed successfully');
@@ -99,8 +110,8 @@ export function SiteHeader({
       }
     }
 
-    setIsEditing(false)
-  }
+    setIsEditing(false);
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -110,12 +121,59 @@ export function SiteHeader({
     }
   };
 
+  const test = () => {
+    console.log('Starting sage agent run');
+
+    fetchEventSource('http://192.168.0.80:8000/v1/agents/sage/runs', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: 'this is a test',
+        model: 'gpt-4o',
+        session_id: '1111',
+        stream: true,
+        user_id: '1234',
+      }),
+      onmessage(event) {
+        // 处理接收到的消息
+        const data = JSON.parse(event.data);
+        console.log('Received message:', data);
+        // 在这里处理流式响应数据
+      },
+      onopen(response) {
+        console.log('Connection opened:', response.status);
+        if (
+          response.ok &&
+          response.headers.get('content-type')?.includes('text/event-stream')
+        ) {
+          console.log('Connection established');
+          return Promise.resolve();
+        }
+        throw new Error(`Failed to establish connection: ${response.status}`);
+      },
+      onerror(err) {
+        console.error('EventSource error:', err);
+        toast.error('连接到代理失败');
+      },
+      onclose() {
+        console.log('Connection closed');
+      },
+    }).catch((error) => {
+      console.error('Error:', error);
+      toast.error('无法启动代理运行');
+    });
+  };
+
   return (
     <>
-      <header className={cn(
-        "bg-background sticky top-0 flex h-14 shrink-0 items-center gap-2 z-20 w-full",
-        isMobile && "px-2"
-      )}>
+      <header
+        className={cn(
+          'bg-background sticky top-0 flex h-14 shrink-0 items-center gap-2 z-20 w-full',
+          isMobile && 'px-2',
+        )}
+      >
         {isMobile && (
           <Button
             variant="ghost"
@@ -224,6 +282,8 @@ export function SiteHeader({
                 </TooltipContent>
               </Tooltip>
 
+              <div onClick={test}>test</div>
+
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -250,5 +310,5 @@ export function SiteHeader({
         projectId={projectId}
       />
     </>
-  )
-} 
+  );
+}

@@ -91,7 +91,7 @@ def create_sandbox(password: str, project_id: str = None):
         labels = {'id': project_id}
         
     params = CreateSandboxParams(
-        image="kortix/suna:0.1.2",
+        image="adamcohenhillel/kortix-suna:0.0.20",
         public=True,
         labels=labels,
         env_vars={
@@ -107,6 +107,14 @@ def create_sandbox(password: str, project_id: str = None):
             "CHROME_DEBUGGING_HOST": "localhost",
             "CHROME_CDP": ""
         },
+        ports=[
+            6080,  # noVNC web interface
+            5900,  # VNC port
+            5901,  # VNC port
+            9222,  # Chrome remote debugging port
+            8080,   # HTTP website port
+            8002,  # The browser api port
+        ],
         resources={
             "cpu": 2,
             "memory": 4,
