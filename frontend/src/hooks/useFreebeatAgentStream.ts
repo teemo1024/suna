@@ -34,7 +34,6 @@ export interface UseAgentStreamResult {
   agentRunId: string | null; // Expose the currently managed agentRunId
   startStreaming: (runId: string) => void;
   stopStreaming: () => Promise<void>;
-  sendTestMessage: () => void;
 }
 
 // Define the callbacks the hook consumer can provide
@@ -219,69 +218,6 @@ export function useAgentStream(
   );
 
   // --- Stream Callback Handlers ---
-
-  const sendMessage = useCallback((message: UnifiedMessage) => {
-    console.log('----- sendMessage -----', message);
-    switch (message.type) {
-      case 'assistant':
-        if (
-          message.metadata.includes('chunk') &&
-          message.content
-        ) {
-          setTextContent((prev) => prev + message.content);
-          callbacks.onAssistantChunk?.({ content: message.content });
-          console.log('----- onAssistantChunk -----', message.content);
-        } else if (message.metadata.includes('complete')) {
-          setTextContent('');
-          setToolCall(null);
-          console.log('----- complete onMessage -----', message);
-          if (message.message_id) callbacks.onMessage(message);
-        } 
-        break;
-      case 'system':
-        break;
-    }
-  }, [setMessages]);
-
-  const timeId = useRef<NodeJS.Timeout | null>(null);
-
-  const currentId = useRef<number>(1111);
-
-  const sendTestMessage = () => {
-    updateStatus('streaming');
-    currentId.current = 1111;
-    timeId.current = setInterval(() => {
-      const message: UnifiedMessage = {
-        message_id: null,
-        type: 'assistant',
-        content: `{"role": "assistant", "content": "test----- ${currentId.current} -----"}`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        thread_id: threadId,
-        is_llm_message: false,
-        metadata:
-          '{"stream_status": "chunk", "thread_run_id": "95add660-87ef-4d15-af03-51c58ac6f80f"}',
-      };
-      console.log('sending message', message);
-      handleStreamMessage(JSON.stringify(message));
-      currentId.current++;
-      if (currentId.current > 1135) {
-        const message: UnifiedMessage = {
-          message_id: '29834023',
-          type: 'assistant',
-          content: `{"role": "assistant", "content": "sajflksajdfljsalkfjlsajflaksjflkas"}`,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          thread_id: threadId,
-          is_llm_message: false,
-          metadata:
-            '{"stream_status": "complete", "thread_run_id": "95add660-87ef-4d15-af03-51c58ac6f80f"}',
-        };
-        handleStreamMessage(JSON.stringify(message));
-        clearInterval(timeId.current);
-      }
-    }, 300);
-  };
 
   const handleStreamMessage = useCallback(
     (rawData: string) => {
@@ -681,7 +617,6 @@ export function useAgentStream(
   return {
     status,
     textContent,
-    sendTestMessage,
     toolCall,
     error,
     agentRunId,

@@ -282,8 +282,6 @@ export function SiteHeader({
                 </TooltipContent>
               </Tooltip>
 
-              <div onClick={test}>test</div>
-
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

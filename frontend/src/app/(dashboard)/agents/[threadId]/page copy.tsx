@@ -28,8 +28,9 @@ import { useSidebar } from '@/components/ui/sidebar';
 import { useAgentStream } from '@/hooks/useAgentStream';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { BillingErrorAlert } from '@/components/billing/usage-limit-alert';
 import { isLocalMode } from '@/lib/config';
-import { FreebeatThreadContent } from '@/components/thread/content/FreebeatThreadContent';
+import { ThreadContent } from '@/components/thread/content/ThreadContent';
 import { ThreadSkeleton } from '@/components/thread/content/ThreadSkeleton';
 
 import { UnifiedMessage, ParsedMetadata, ThreadParams } from '@/components/thread/types';
@@ -73,6 +74,15 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
   const [currentToolIndex, setCurrentToolIndex] = useState<number>(0);
   const [autoOpenedPanel, setAutoOpenedPanel] = useState(false);
   const [initialPanelOpenAttempted, setInitialPanelOpenAttempted] = useState(false);
+
+  // Billing alert state
+  const [showBillingAlert, setShowBillingAlert] = useState(false);
+  const [billingData, setBillingData] = useState<{
+    currentUsage?: number;
+    limit?: number;
+    message?: string;
+    accountId?: string | null;
+  }>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -431,6 +441,25 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
         if (results[1].status === 'rejected') {
           const error = results[1].reason;
           console.error('Failed to start agent:', error);
+
+          // Check if it's our custom BillingError (402)
+          if (error instanceof BillingError) {
+            console.log('Caught BillingError:', error.detail);
+            // Extract billing details
+            setBillingData({
+              // Note: currentUsage and limit might not be in the detail from the backend yet
+              currentUsage: error.detail.currentUsage as number | undefined,
+              limit: error.detail.limit as number | undefined,
+              message: error.detail.message || 'Monthly usage limit reached. Please upgrade.', // Use message from error detail
+              accountId: project?.account_id || null, // Pass account ID
+            });
+            setShowBillingAlert(true);
+
+            // Remove the optimistic message since the agent couldn't start
+            setMessages((prev) => prev.filter((m) => m.message_id !== optimisticUserMessage.message_id));
+            return; // Stop further execution in this case
+          }
+
           // Handle other agent start errors
           throw new Error(`Failed to start agent: ${error?.message || error}`);
         }
@@ -687,6 +716,100 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
     [messages, toolCalls],
   ); // Add toolCalls as a dependency
 
+  // Handle streaming tool calls
+  const handleStreamingToolCall = useCallback((toolCall: StreamingToolCall | null) => {
+    if (!toolCall) return;
+
+    const toolName = toolCall.name || toolCall.xml_tag_name || 'Unknown Tool';
+
+    // Skip <ask> tags from showing in the side panel during streaming
+    if (toolName === 'ask' || toolName === 'complete') {
+      return;
+    }
+
+    console.log('[STREAM] Received tool call:', toolName);
+
+    // If user explicitly closed the panel, don't reopen it for streaming calls
+    if (userClosedPanelRef.current) return;
+
+    // Create a properly formatted tool call input for the streaming tool
+    // that matches the format of historical tool calls
+    const toolArguments = toolCall.arguments || '';
+
+    // Format the arguments in a way that matches the expected XML format for each tool
+    // This ensures the specialized tool views render correctly
+    let formattedContent = toolArguments;
+    if (toolName.toLowerCase().includes('command') && !toolArguments.includes('<execute-command>')) {
+      formattedContent = `<execute-command>${toolArguments}</execute-command>`;
+    } else if (toolName.toLowerCase().includes('file') && !toolArguments.includes('<create-file>')) {
+      // For file operations, wrap with appropriate tag if not already wrapped
+      const fileOpTags = ['create-file', 'delete-file', 'full-file-rewrite'];
+      const matchingTag = fileOpTags.find((tag) => toolName.toLowerCase().includes(tag));
+      if (matchingTag && !toolArguments.includes(`<${matchingTag}>`)) {
+        formattedContent = `<${matchingTag}>${toolArguments}</${matchingTag}>`;
+      }
+    }
+
+    const newToolCall: ToolCallInput = {
+      assistantCall: {
+        name: toolName,
+        content: formattedContent,
+        timestamp: new Date().toISOString(),
+      },
+      // For streaming tool calls, provide empty content that indicates streaming
+      toolResult: {
+        content: 'STREAMING',
+        isSuccess: true,
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    // Update the tool calls state to reflect the streaming tool
+    setToolCalls((prev) => {
+      // If the same tool is already being streamed, update it instead of adding a new one
+      if (prev.length > 0 && prev[0].assistantCall.name === toolName) {
+        return [
+          {
+            ...prev[0],
+            assistantCall: {
+              ...prev[0].assistantCall,
+              content: formattedContent,
+            },
+          },
+        ];
+      }
+      return [newToolCall];
+    });
+
+    setCurrentToolIndex(0);
+    setIsSidePanelOpen(true);
+  }, []);
+
+  // SEO title update
+  useEffect(() => {
+    if (projectName) {
+      // Update document title when project name changes
+      document.title = `${projectName} | Kortix Suna`;
+
+      // Update meta tags for SEO
+      const metaDescription = document.querySelector('meta[name="description"]');
+      if (metaDescription) {
+        metaDescription.setAttribute('content', `${projectName} - Interactive agent conversation powered by Kortix Suna`);
+      }
+
+      // Update OpenGraph tags if they exist
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) {
+        ogTitle.setAttribute('content', `${projectName} | Kortix Suna`);
+      }
+
+      const ogDescription = document.querySelector('meta[property="og:description"]');
+      if (ogDescription) {
+        ogDescription.setAttribute('content', `Interactive AI conversation for ${projectName}`);
+      }
+    }
+  }, [projectName]);
+
   // Add another useEffect to ensure messages are refreshed when agent status changes to idle
   useEffect(() => {
     if (agentStatus === 'idle' && streamHookStatus !== 'streaming' && streamHookStatus !== 'connecting') {
@@ -728,6 +851,63 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
       }
     }
   }, [agentStatus, threadId, isLoading, streamHookStatus]);
+
+  // Update the checkBillingStatus function
+  const checkBillingLimits = useCallback(async () => {
+    // Skip billing checks in local development mode
+    if (isLocalMode()) {
+      console.log('Running in local development mode - billing checks are disabled');
+      return false;
+    }
+
+    try {
+      const result = await checkBillingStatus();
+
+      if (!result.can_run) {
+        setBillingData({
+          currentUsage: result.subscription?.minutes_limit || 0,
+          limit: result.subscription?.minutes_limit || 0,
+          message: result.message || 'Usage limit reached',
+          accountId: project?.account_id || null,
+        });
+        setShowBillingAlert(true);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error checking billing status:', err);
+      return false;
+    }
+  }, [project?.account_id]);
+
+  // Update useEffect to use the renamed function
+  useEffect(() => {
+    const previousStatus = previousAgentStatus.current;
+
+    // Check if agent just completed (status changed from running to idle)
+    if (previousStatus === 'running' && agentStatus === 'idle') {
+      checkBillingLimits();
+    }
+
+    // Store current status for next comparison
+    previousAgentStatus.current = agentStatus;
+  }, [agentStatus, checkBillingLimits]);
+
+  // Update other useEffect to use the renamed function
+  useEffect(() => {
+    if (project?.account_id && initialLoadCompleted.current) {
+      console.log('Checking billing status on page load');
+      checkBillingLimits();
+    }
+  }, [project?.account_id, checkBillingLimits, initialLoadCompleted]);
+
+  // Update the last useEffect to use the renamed function
+  useEffect(() => {
+    if (messagesLoadedRef.current && project?.account_id && !isLoading) {
+      console.log('Checking billing status after messages loaded');
+      checkBillingLimits();
+    }
+  }, [messagesLoadedRef.current, checkBillingLimits, project?.account_id, isLoading]);
 
   // Check for debug mode in URL on initial load and when URL changes
   useEffect(() => {
@@ -794,6 +974,16 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
         />
 
         {sandboxId && <FileViewerModal open={fileViewerOpen} onOpenChange={setFileViewerOpen} sandboxId={sandboxId} initialFilePath={fileToView} project={project || undefined} />}
+
+        {/* Billing Alert for usage limit */}
+        <BillingErrorAlert
+          message={billingData.message}
+          currentUsage={billingData.currentUsage}
+          limit={billingData.limit}
+          accountId={billingData.accountId}
+          onDismiss={() => setShowBillingAlert(false)}
+          isOpen={showBillingAlert}
+        />
       </div>
     );
   } else {
@@ -819,7 +1009,7 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
           />
 
           {/* Pass debugMode to ThreadContent component */}
-          <FreebeatThreadContent
+          <ThreadContent
             messages={messages}
             streamingTextContent={streamingTextContent}
             streamingToolCall={streamingToolCall}
@@ -878,6 +1068,16 @@ export default function ThreadPage({ params }: { params: Promise<ThreadParams> }
         />
 
         {sandboxId && <FileViewerModal open={fileViewerOpen} onOpenChange={setFileViewerOpen} sandboxId={sandboxId} initialFilePath={fileToView} project={project || undefined} />}
+
+        {/* Billing Alert for usage limit */}
+        <BillingErrorAlert
+          message={billingData.message}
+          currentUsage={billingData.currentUsage}
+          limit={billingData.limit}
+          accountId={billingData.accountId}
+          onDismiss={() => setShowBillingAlert(false)}
+          isOpen={showBillingAlert}
+        />
       </div>
     );
   }
